@@ -168,6 +168,30 @@ def _normalise_pytket_generated_files(app, exception):
                     file.write(normalised_content)
 
 
+def _prune_sourceless_viewcode_modules(app):
+    """Drop viewcode entries for modules whose source could not be read.
+
+    ``sphinx.ext.viewcode`` builds its ``_modules`` index from every module it
+    encountered, including ones it recorded as having no available source (it
+    stores ``False`` for those). It never writes a page for them, so the index
+    ends up linking to 404s -- for pytket that is ``builtins`` plus every
+    ``pytket._tket.*`` nanobind extension module, which are compiled C++ with no
+    Python source to show. Pruning them before viewcode's own
+    ``html-collect-pages`` handler runs (hence the lower priority) keeps the
+    index limited to modules that actually get a page.
+
+    The ``not entry`` test mirrors the skip condition in viewcode's own
+    ``collect_pages``, so exactly the modules it declines to render are removed.
+    Entries for real modules are ``(code, tags, used, refname)`` tuples and are
+    therefore always truthy.
+    """
+    modules = getattr(app.env, "_viewcode_modules", None)
+    if modules:
+        for modname in [name for name, entry in modules.items() if not entry]:
+            del modules[modname]
+    return ()
+
+
 suppress_warnings = [
     "intersphinx.external",
 ]
@@ -320,8 +344,9 @@ googleanalytics_id = "G-YPQ1FTGDL3"
 
 
 def setup(app):
-    """Register pytket public-name normalisation hooks with Sphinx."""
+    """Register pytket public-name normalisation and viewcode hooks."""
     app.connect("autodoc-process-signature", _normalise_pytket_signature, priority=900)
     app.connect("autodoc-process-docstring", _normalise_pytket_docstring, priority=900)
     app.connect("doctree-resolved", _normalise_pytket_doctree, priority=900)
     app.connect("build-finished", _normalise_pytket_generated_files, priority=900)
+    app.connect("html-collect-pages", _prune_sourceless_viewcode_modules, priority=100)
